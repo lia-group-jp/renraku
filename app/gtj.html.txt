@@ -18,12 +18,14 @@
   .row { display: flex; gap: 8px; margin-bottom: 12px; align-items: flex-start; }
   .avatar { width: 38px; height: 38px; border-radius: 50%; background: #1f3a60; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold; flex-shrink: 0; }
   .col { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 78%; }
-  .who { font-size: 12px; color: #1f3a60; margin: 0 0 2px 2px; }
-  .time { font-size: 11px; color: #33415c; margin: 0 0 3px 2px; }
+  .who { font-size: 12px; color: #1f3a60; margin: 0 0 3px 2px; }
+  /* LINEと同じ: 吹き出しの下端の横に時刻。自分の発言は時刻の上に「既読」 */
+  .line { display: flex; align-items: flex-end; gap: 5px; min-width: 0; }
+  .meta { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+  .time, .read { font-size: 11px; color: #33415c; white-space: nowrap; }
   .bubble { background: #fff; padding: 8px 12px; border-radius: 16px; white-space: pre-wrap; word-break: break-word; font-size: 15px; }
-  .row.me { justify-content: flex-end; }
-  .row.me .col { align-items: flex-end; }
-  .row.me .bubble { background: #8de055; }
+  .row.me { justify-content: flex-end; align-items: flex-end; }
+  .row.me .bubble { background: #8de055; max-width: 72%; }
   form { background: #f4f4f4; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
   form .line { display: flex; gap: 6px; }
   form input, form textarea { font-size: 16px; padding: 8px; border: 1px solid #ccc; border-radius: 8px; }
@@ -67,7 +69,6 @@
   };
   let pass = keep('pass');
   let all = [];     // 全発言
-  const READ_MIN = 3;   // 送信から何分で「既読」を付けるか
 
   function call(action, name, body) {
     return new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).api(pass, action, name, body));
@@ -114,7 +115,6 @@
     const list = $('list');
     const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
     const me = key($('name').value.trim());
-    const now = Date.now();
     const items = [];
     let lastDay = '';
     all.forEach(([time, who, text]) => {
@@ -129,16 +129,17 @@
       }
       const mine = me !== '' && key(who) === me;
       const row = el('div', 'row' + (mine ? ' me' : ''));
-      const col = el('div', 'col');
       if (mine) {
-        // 送信から READ_MIN 分たった自分の発言に「既読」を付ける
-        const sent = new Date(day.replace(/-/g, '/') + ' ' + (hm || '00:00')).getTime();
-        const read = sent && now - sent >= READ_MIN * 60000;
-        col.append(el('div', 'time', (read ? '既読　' : '') + hm), el('div', 'bubble', text));
-        row.append(col);
+        // 自分の発言。吹き出しの左下に「既読」と時刻(LINEと同じ並び)
+        const meta = el('div', 'meta');
+        meta.append(el('div', 'read', '既読'), el('div', 'time', hm));
+        row.append(meta, el('div', 'bubble', text));
       } else {
-        // アイコンは名前の1文字目
-        col.append(el('div', 'who', who), el('div', 'time', hm), el('div', 'bubble', text));
+        // 相手の発言。アイコンは名前の1文字目、時刻は吹き出しの右下
+        const col = el('div', 'col');
+        const line = el('div', 'line');
+        line.append(el('div', 'bubble', text), el('div', 'time', hm));
+        col.append(el('div', 'who', who), line);
         row.append(el('div', 'avatar', String(who).trim().charAt(0)), col);
       }
       items.push(row);
