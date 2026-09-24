@@ -6,9 +6,9 @@
 
 // ブラウザのタブに出す名前。スプレッドシート名は使わない(社内用の名前が社員に見えてしまうため)
 // GTJ版は「GT JAPAN㈱　社内連絡」、MA版は「（社）Management　社内連絡」
-const TITLE = 'GT JAPAN㈱　社内連絡';
+const TITLE = '（社）Management　社内連絡';
 // 社員が開くURL。GTJは /gtj/、MAは /ma/
-const HOME = 'https://lia-group-jp.github.io/renraku/gtj/';
+const HOME = 'https://lia-group-jp.github.io/renraku/ma/';
 const SHOW = 200;      // 更新のたびに読み直す件数(最新から)。画面を開いた時は全件読む
 const MAX_LEN = 2000;  // 1発言の最大文字数
 
