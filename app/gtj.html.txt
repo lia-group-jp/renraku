@@ -1,7 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>GT JAPAN㈱　社内連絡</title>
+<meta name="theme-color" content="#8cabd9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   * { box-sizing: border-box; }
   /* height は100dvhを優先。iOSでキーボードが出ても入力欄が画面外に行かない */
@@ -58,6 +64,7 @@
 </div>
 
 <script>
+  const API = 'https://script.google.com/macros/s/AKfycbyAAPgEkuv1uxkLTpF-5SspfueI0ffrsdaCQl35NyWwv4nMqFGpRrBLIqfSkfPAY1PDQA/exec';   // デプロイし直すたびに変わる
   const $ = id => document.getElementById(id);
   const key = s => String(s).replace(/[\s　]/g, '');   // 全角・半角の空白を無視して名前を比べる
   // 保存できない環境(プライベートブラウズ等)でも画面は動かす
@@ -70,8 +77,18 @@
   let pass = keep('pass');
   let all = [];     // 全発言
 
+  // データだけをGoogleから取りに来る。ログイン情報は送らないので、
+  // その端末がGoogleに何アカウントログインしていても関係なく動く
   function call(action, name, body) {
-    return new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).api(pass, action, name, body));
+    return fetch(API, {
+      method: 'POST',
+      // text/plain にしないとブラウザが事前確認を投げ、GASが答えられずに失敗する
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ pass: pass, action: action, name: name, body: body })
+    }).then(r => r.json()).then(r => {
+      if (!r.ok) throw new Error(r.error);
+      return r.data;
+    });
   }
 
   function fail(e) {
