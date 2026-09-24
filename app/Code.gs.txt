@@ -1,0 +1,76 @@
+// 社内連絡アプリ サーバー側(GTJ版・MA版で共通。そのまま貼る)
+// データはこのスクリプトが紐づくスプレッドシートの3シート:
+//   台本: A 日時 / B 発信者 / C 本文(1行目は見出し)
+//   名簿: A 氏名(1行目は見出し)
+//   設定: B1 = パスワード(空だと誰も入れない)
+
+// ブラウザのタブに出す名前。スプレッドシート名は使わない(社内用の名前が社員に見えてしまうため)
+// GTJ版は「GT JAPAN㈱　社内連絡」、MA版は「（社）Management　社内連絡」
+const TITLE = 'GT JAPAN㈱　社内連絡';
+const SHOW = 200;      // 最初に出す件数(最新から)。それより古いのは画面のボタンで全部出せる
+const MAX_LEN = 2000;  // 1発言の最大文字数
+
+// 最初に1回だけ、エディタから手動で実行する(先頭に置くと実行ボタンの既定になる)。足りないシートを作る
+function setup() {
+  const ss = SpreadsheetApp.getActive();
+  [['台本', ['日時', '発信者', '本文']], ['名簿', ['氏名']], ['設定', ['合言葉', '']]]
+    .forEach(([name, head]) => { if (!ss.getSheetByName(name)) ss.insertSheet(name).appendRow(head); });
+}
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle(TITLE)
+    // 別ページに埋め込めるようにする(Googleの警告バーを出さないため)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// 画面から呼ばれる唯一の入り口
+function api(pass, action, name, body) {
+  const ss = SpreadsheetApp.getActive();
+  // シート名が変わると全員入れなくなる。何が無いのかを日本語で返す
+  const need = (n) => {
+    const s = ss.getSheetByName(n);
+    if (!s) throw new Error('「' + n + '」シートが見つかりません。管理者に連絡してください');
+    return s;
+  };
+  const secret = String(need('設定').getRange('B1').getValue()).trim();
+  if (!secret || String(pass).trim() !== secret) throw new Error('PASS');
+
+  const roster = need('名簿').getRange('A2:A').getValues()
+    .map(r => String(r[0]).trim()).filter(Boolean);
+  const sheet = need('台本');
+
+  if (action === 'post') {
+    name = String(name || '').trim();
+    body = String(body || '').trim();
+    // 全角と半角のスペース違いで弾かれないように、空白を無視して照合し、名簿の表記に揃える
+    const hit = roster.find(r => r.replace(/[\s　]/g, '') === name.replace(/[\s　]/g, ''));
+    if (!hit) throw new Error('名簿にない名前です');
+    name = hit;
+    if (!body) throw new Error('本文が空です');
+    if (body.length > MAX_LEN) throw new Error(MAX_LEN + '文字以内にしてください');
+    // =や+で始まる本文がシートで数式にならないようにする
+    if (/^[=+\-@]/.test(body)) body = "'" + body;
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try { sheet.appendRow([new Date(), name, body]); } finally { lock.releaseLock(); }
+  }
+
+  const last = sheet.getLastRow();
+  // action='all' は全件(画面を開いた時)。それ以外は最新SHOW件だけ返して軽くする
+  const from = action === 'all' ? 2 : Math.max(2, last - SHOW + 1);
+  const rows = last < 2 ? [] : sheet.getRange(from, 1, last - from + 1, 3).getValues();
+  const tz = ss.getSpreadsheetTimeZone();
+  return {
+    roster: roster,
+    total: Math.max(0, last - 1),   // 見出しを除いた行数。画面が最新分をはめ直すのに使う
+    full: action === 'all',
+    // シートで手直しした日時・名前・本文をそのまま出す(空行は画面側で飛ばす)
+    msgs: rows.map(r => [
+      r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy/MM/dd HH:mm') : String(r[0]),
+      String(r[1]),
+      String(r[2])
+    ])
+  };
+}
