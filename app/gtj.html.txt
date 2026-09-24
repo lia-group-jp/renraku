@@ -67,8 +67,7 @@
   };
   let pass = keep('pass');
   let all = [];     // 全発言
-  let from0 = 2;    // all[0] がシートの何行目か
-  let reads = [];   // [[氏名, その人が読んだ最終行], ...]
+  const READ_MIN = 3;   // 送信から何分で「既読」を付けるか
 
   function call(action, name, body) {
     return new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng).api(pass, action, name, body));
@@ -104,11 +103,9 @@
       all = data.msgs;
     } else {
       const k = data.total - data.msgs.length;
-      if (k > all.length) return call('all', $('name').value).then(apply);   // 取りこぼした時は全部読み直す
+      if (k > all.length) return call('all').then(apply);   // 取りこぼした時は全部読み直す
       all = all.slice(0, Math.max(0, k)).concat(data.msgs);
     }
-    from0 = 2 + Math.max(0, data.total - all.length);
-    reads = data.reads || [];
     render(data.roster);
   }
 
@@ -117,16 +114,10 @@
     const list = $('list');
     const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
     const me = key($('name').value.trim());
-    // 自分以外が「どこまで読んだか」。並べておいて、行番号以上の人数を数える
-    const others = reads.filter(r => key(r[0]) !== me).map(r => Number(r[1])).sort((a, b) => a - b);
-    const readCount = (row) => {
-      let lo = 0, hi = others.length;
-      while (lo < hi) { const m = (lo + hi) >> 1; if (others[m] >= row) hi = m; else lo = m + 1; }
-      return others.length - lo;
-    };
+    const now = Date.now();
     const items = [];
     let lastDay = '';
-    all.forEach(([time, who, text], i) => {
+    all.forEach(([time, who, text]) => {
       if (text === '') return;
       // 日時は「yyyy/MM/dd HH:mm」。日付が変わったら区切りを入れ、本文には時刻だけ出す
       const [day, hm = ''] = String(time).split(' ');
@@ -140,8 +131,10 @@
       const row = el('div', 'row' + (mine ? ' me' : ''));
       const col = el('div', 'col');
       if (mine) {
-        const n = readCount(from0 + i);
-        col.append(el('div', 'time', (n ? '既読 ' + n + '　' : '') + hm), el('div', 'bubble', text));
+        // 送信から READ_MIN 分たった自分の発言に「既読」を付ける
+        const sent = new Date(day.replace(/-/g, '/') + ' ' + (hm || '00:00')).getTime();
+        const read = sent && now - sent >= READ_MIN * 60000;
+        col.append(el('div', 'time', (read ? '既読　' : '') + hm), el('div', 'bubble', text));
         row.append(col);
       } else {
         // アイコンは名前の1文字目
@@ -168,7 +161,7 @@
   function refresh() {
     if (refreshing || document.hidden || $('chat').style.display !== 'flex') return;
     refreshing = true;
-    return call('list', $('name').value).then(apply).catch(fail).finally(() => { refreshing = false; });
+    return call('list').then(apply).catch(fail).finally(() => { refreshing = false; });
   }
 
   function login() {
@@ -176,7 +169,7 @@
     $('loginBtn').disabled = true;
     $('loginErr').textContent = '読み込んでいます…';
     // 最初に全件読む。件数が多いと数秒かかる
-    call('all', $('name').value).then(data => {
+    call('all').then(data => {
       keep('pass', pass);
       $('login').style.display = 'none';
       $('chat').style.display = 'flex';

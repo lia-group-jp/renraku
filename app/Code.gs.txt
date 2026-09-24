@@ -1,9 +1,8 @@
 // 社内連絡アプリ サーバー側(GTJ版・MA版で共通。そのまま貼る)
-// データはこのスクリプトが紐づくスプレッドシートの4シート:
+// データはこのスクリプトが紐づくスプレッドシートの3シート:
 //   台本: A 日時 / B 発信者 / C 本文(1行目は見出し)
 //   名簿: A 氏名(1行目は見出し)
 //   設定: B1 = パスワード(空だと誰も入れない)
-//   既読: A 氏名 / B 最終既読の行番号 / C 更新日時(自動で作られる)
 
 // ブラウザのタブに出す名前。スプレッドシート名は使わない(社内用の名前が社員に見えてしまうため)
 // GTJ版は「GT JAPAN㈱　社内連絡」、MA版は「（社）Management　社内連絡」
@@ -14,7 +13,7 @@ const MAX_LEN = 2000;  // 1発言の最大文字数
 // 最初に1回だけ、エディタから手動で実行する(先頭に置くと実行ボタンの既定になる)。足りないシートを作る
 function setup() {
   const ss = SpreadsheetApp.getActive();
-  [['台本', ['日時', '発信者', '本文']], ['名簿', ['氏名']], ['設定', ['パスワード', '']], ['既読', ['氏名', '最終既読行', '更新']]]
+  [['台本', ['日時', '発信者', '本文']], ['名簿', ['氏名']], ['設定', ['パスワード', '']]]
     .forEach(([name, head]) => { if (!ss.getSheetByName(name)) ss.insertSheet(name).appendRow(head); });
 }
 
@@ -67,9 +66,7 @@ function api(pass, action, name, body) {
   return {
     roster: roster,
     total: Math.max(0, last - 1),   // 見出しを除いた行数。画面が最新分をはめ直すのに使う
-    from: from,                     // msgs[0] がシートの何行目か。既読の計算に使う
     full: action === 'all',
-    reads: readMarks(ss, me, last), // [[氏名, その人が読んだ最終行], ...]
     // シートで手直しした日時・名前・本文をそのまま出す(空行は画面側で飛ばす)
     msgs: rows.map(r => [
       r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy/MM/dd HH:mm') : String(r[0]),
@@ -79,22 +76,3 @@ function api(pass, action, name, body) {
   };
 }
 
-// 既読の記録と取り出し。名前を選んでいる人だけ、進んだ時だけ書き込む
-function readMarks(ss, me, last) {
-  let rs = ss.getSheetByName('既読');
-  if (!rs) { rs = ss.insertSheet('既読'); rs.appendRow(['氏名', '最終既読行', '更新']); }
-  const n = rs.getLastRow();
-  const vals = n < 2 ? [] : rs.getRange(2, 1, n - 1, 2).getValues().map(r => [String(r[0]).trim(), Number(r[1]) || 0]);
-
-  if (me) {
-    const i = vals.findIndex(r => r[0] === me);
-    if (i < 0) {
-      rs.appendRow([me, last, new Date()]);
-      vals.push([me, last]);
-    } else if (vals[i][1] < last) {
-      rs.getRange(i + 2, 2, 1, 2).setValues([[last, new Date()]]);
-      vals[i][1] = last;
-    }
-  }
-  return vals;
-}
