@@ -129,16 +129,17 @@
       }
       const mine = me !== '' && key(who) === me;
       const row = el('div', 'row' + (mine ? ' me' : ''));
+      // 既読は誰の発言にも必ず付ける(人数は出さない。名前を選んでいなくても出る)
+      const meta = el('div', 'meta');
+      meta.append(el('div', 'read', '既読'), el('div', 'time', hm));
       if (mine) {
         // 自分の発言。吹き出しの左下に「既読」と時刻(LINEと同じ並び)
-        const meta = el('div', 'meta');
-        meta.append(el('div', 'read', '既読'), el('div', 'time', hm));
         row.append(meta, el('div', 'bubble', text));
       } else {
-        // 相手の発言。アイコンは名前の1文字目、時刻は吹き出しの右下
+        // 相手の発言。アイコンは名前の1文字目、「既読」と時刻は吹き出しの右下
         const col = el('div', 'col');
         const line = el('div', 'line');
-        line.append(el('div', 'bubble', text), el('div', 'time', hm));
+        line.append(el('div', 'bubble', text), meta);
         col.append(el('div', 'who', who), line);
         row.append(el('div', 'avatar', String(who).trim().charAt(0)), col);
       }
