@@ -1,19 +1,20 @@
 // 社内連絡アプリ サーバー側(GTJ版・MA版で共通。そのまま貼る)
-// データはこのスクリプトが紐づくスプレッドシートの3シート:
+// データはこのスクリプトが紐づくスプレッドシートの4シート:
 //   台本: A 日時 / B 発信者 / C 本文(1行目は見出し)
 //   名簿: A 氏名(1行目は見出し)
 //   設定: B1 = パスワード(空だと誰も入れない)
+//   既読: A 氏名 / B 最終既読の行番号 / C 更新日時(自動で作られる)
 
 // ブラウザのタブに出す名前。スプレッドシート名は使わない(社内用の名前が社員に見えてしまうため)
 // GTJ版は「GT JAPAN㈱　社内連絡」、MA版は「（社）Management　社内連絡」
 const TITLE = 'GT JAPAN㈱　社内連絡';
-const SHOW = 200;      // 最初に出す件数(最新から)。それより古いのは画面のボタンで全部出せる
+const SHOW = 200;      // 更新のたびに読み直す件数(最新から)。画面を開いた時は全件読む
 const MAX_LEN = 2000;  // 1発言の最大文字数
 
 // 最初に1回だけ、エディタから手動で実行する(先頭に置くと実行ボタンの既定になる)。足りないシートを作る
 function setup() {
   const ss = SpreadsheetApp.getActive();
-  [['台本', ['日時', '発信者', '本文']], ['名簿', ['氏名']], ['設定', ['合言葉', '']]]
+  [['台本', ['日時', '発信者', '本文']], ['名簿', ['氏名']], ['設定', ['パスワード', '']], ['既読', ['氏名', '最終既読行', '更新']]]
     .forEach(([name, head]) => { if (!ss.getSheetByName(name)) ss.insertSheet(name).appendRow(head); });
 }
 
@@ -25,7 +26,10 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-// 画面から呼ばれる唯一の入り口
+// 空白(全角・半角)の違いで弾かれないように、照合はこの形で行う
+const nameKey = (s) => String(s).replace(/[\s　]/g, '');
+
+// 画面から呼ばれる唯一の入り口。name は post なら発信者、それ以外は「読んでいる人」
 function api(pass, action, name, body) {
   const ss = SpreadsheetApp.getActive();
   // シート名が変わると全員入れなくなる。何が無いのかを日本語で返す
@@ -40,21 +44,18 @@ function api(pass, action, name, body) {
   const roster = need('名簿').getRange('A2:A').getValues()
     .map(r => String(r[0]).trim()).filter(Boolean);
   const sheet = need('台本');
+  const me = roster.find(r => nameKey(r) === nameKey(name || '')) || '';   // 名簿の表記に揃える
 
   if (action === 'post') {
-    name = String(name || '').trim();
     body = String(body || '').trim();
-    // 全角と半角のスペース違いで弾かれないように、空白を無視して照合し、名簿の表記に揃える
-    const hit = roster.find(r => r.replace(/[\s　]/g, '') === name.replace(/[\s　]/g, ''));
-    if (!hit) throw new Error('名簿にない名前です');
-    name = hit;
+    if (!me) throw new Error('名簿にない名前です');
     if (!body) throw new Error('本文が空です');
     if (body.length > MAX_LEN) throw new Error(MAX_LEN + '文字以内にしてください');
     // =や+で始まる本文がシートで数式にならないようにする
     if (/^[=+\-@]/.test(body)) body = "'" + body;
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
-    try { sheet.appendRow([new Date(), name, body]); } finally { lock.releaseLock(); }
+    try { sheet.appendRow([new Date(), me, body]); } finally { lock.releaseLock(); }
   }
 
   const last = sheet.getLastRow();
@@ -62,10 +63,13 @@ function api(pass, action, name, body) {
   const from = action === 'all' ? 2 : Math.max(2, last - SHOW + 1);
   const rows = last < 2 ? [] : sheet.getRange(from, 1, last - from + 1, 3).getValues();
   const tz = ss.getSpreadsheetTimeZone();
+
   return {
     roster: roster,
     total: Math.max(0, last - 1),   // 見出しを除いた行数。画面が最新分をはめ直すのに使う
+    from: from,                     // msgs[0] がシートの何行目か。既読の計算に使う
     full: action === 'all',
+    reads: readMarks(ss, me, last), // [[氏名, その人が読んだ最終行], ...]
     // シートで手直しした日時・名前・本文をそのまま出す(空行は画面側で飛ばす)
     msgs: rows.map(r => [
       r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'yyyy/MM/dd HH:mm') : String(r[0]),
@@ -73,4 +77,24 @@ function api(pass, action, name, body) {
       String(r[2])
     ])
   };
+}
+
+// 既読の記録と取り出し。名前を選んでいる人だけ、進んだ時だけ書き込む
+function readMarks(ss, me, last) {
+  let rs = ss.getSheetByName('既読');
+  if (!rs) { rs = ss.insertSheet('既読'); rs.appendRow(['氏名', '最終既読行', '更新']); }
+  const n = rs.getLastRow();
+  const vals = n < 2 ? [] : rs.getRange(2, 1, n - 1, 2).getValues().map(r => [String(r[0]).trim(), Number(r[1]) || 0]);
+
+  if (me) {
+    const i = vals.findIndex(r => r[0] === me);
+    if (i < 0) {
+      rs.appendRow([me, last, new Date()]);
+      vals.push([me, last]);
+    } else if (vals[i][1] < last) {
+      rs.getRange(i + 2, 2, 1, 2).setValues([[last, new Date()]]);
+      vals[i][1] = last;
+    }
+  }
+  return vals;
 }
